@@ -5,17 +5,20 @@
 #define DETERMINISTIC_SEED() 2629819142  // Nice geometry, and a pink ball doesn't settle in correctly
 
 static const int   c_2DNumSteps = 100;
+
 static const int   c_2DPointsPerLearningRate = 20;
-static const int   c_2DNumAdamPoints = 20; // Aqua
 static const float c_2DLearningRates[] = { 0.5f, 1.0f, 2.0f, 10.0f }; // Red, Blue, Green, Magenta
 static const float c_2DLearningRateMultiplier = 1.0f / 1000.0f;
+static const int   c_2DNumAdamPoints = 20; // Aqua
+
+
 
 static const int   c_2DNumGaussians = 25;
 static const float c_2DSigmaMin = 0.05f;
 static const float c_2DSigmaMax = 0.2f;
 
 static const int   c_2DImageSize = 256;
-static const float c_2DPointSigma = 2.0f;
+static const float c_2DPointRadius = 2.0f;
 static const int   c_2DTopoColors = 16;
 
 #include <stdio.h>
@@ -109,33 +112,31 @@ float2 FGradient(const std::vector<Gauss2D>& gaussians, const float2& x)
 	return ret;
 }
 
-static void PlotGaussian(std::vector<unsigned char>& image, int width, int height, int x, int y, float sigma, unsigned char color[3])
+static void PlotCircle(std::vector<unsigned char>& image, int width, int height, int x, int y, float radius, unsigned char color[3])
 {
-	int kernelRadius = int(std::sqrt(-2.0f * sigma * sigma * std::log(0.005f)));
+	int sx = Clamp((int)std::floor(float(x) - radius), 0, width - 1);
+	int sy = Clamp((int)std::floor(float(y) - radius), 0, width - 1);
 
-	int sx = Clamp(x - kernelRadius, 0, width - 1);
-	int ex = Clamp(x + kernelRadius, 0, height - 1);
-	int sy = Clamp(y - kernelRadius, 0, width - 1);
-	int ey = Clamp(y + kernelRadius, 0, height - 1);
+	int ex = Clamp((int)std::ceil(float(x) + radius), 0, height - 1);
+	int ey = Clamp((int)std::ceil(float(y) + radius), 0, height - 1);
 
 	for (int iy = sy; iy <= ey; ++iy)
 	{
-		unsigned char* pixel = &image[(iy * width + sx) * 3];
-
-		int ky = std::abs(iy - y);
-		float kernelY = std::exp(-float(ky * ky) / (2.0f * sigma * sigma));
+		float dy = float(iy - y);
 
 		for (int ix = sx; ix <= ex; ++ix)
 		{
-			int kx = std::abs(ix - x);
-			float kernelX = std::exp(-float(kx * kx) / (2.0f * sigma * sigma));
+			float dx = float(ix - x);
 
-			float kernel = kernelX * kernelY;
+			float distance = std::sqrt(dx * dx + dy * dy) - radius;
 
+			float alpha = 1.0f - SmoothStep(-1.0f, 0.0f, distance);
+
+			unsigned char* pixel = &image[(iy * width + ix) * 3];
 			for (int i = 0; i < 3; ++i)
 			{
 				unsigned char oldColor = *pixel;
-				unsigned char newColor = (unsigned char)Lerp(float(oldColor), float(color[i]), kernel);
+				unsigned char newColor = (unsigned char)Lerp(float(oldColor), float(color[i]), alpha);
 				*pixel = newColor;
 				pixel++;
 			}
@@ -143,7 +144,8 @@ static void PlotGaussian(std::vector<unsigned char>& image, int width, int heigh
 	}
 }
 
-void DrawGaussians(const std::vector<Gauss2D>& gaussians, const std::vector<std::vector<float2>>& allPoints, const std::vector<AdamPoint>& adamPoints, const char* fileName)
+template <typename TDrawLambda>
+void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, const TDrawLambda& DrawLambda)
 {
 	// Gather up the gaussian pixel values
 	std::vector<float> pixelsF(c_2DImageSize * c_2DImageSize, 0.0f);
@@ -184,34 +186,7 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const std::vector<std:
 		pixels[i * 3 + 2] = U8Topo;
 	}
 
-	// draw the points
-	int pointIndex = 0;
-	for (const std::vector<float2>& points : allPoints)
-	{
-		for (const float2& point : points)
-		{
-			int px = Clamp(int(point[0] * c_2DImageSize), 0, c_2DImageSize - 1);
-			int py = Clamp(int(point[1] * c_2DImageSize), 0, c_2DImageSize - 1);
-
-			RGBu8 color = IndexToColor(pointIndex);
-			unsigned char color2[3] = { color.R, color.G, color.B };
-
-			PlotGaussian(pixels, c_2DImageSize, c_2DImageSize, px, py, c_2DPointSigma, color2);
-		}
-		pointIndex++;
-	}
-
-	// draw the adam points
-	for (const AdamPoint& point : adamPoints)
-	{
-		int px = Clamp(int(point.m_point[0] * c_2DImageSize), 0, c_2DImageSize - 1);
-		int py = Clamp(int(point.m_point[1] * c_2DImageSize), 0, c_2DImageSize - 1);
-
-		RGBu8 color = IndexToColor(pointIndex);
-		unsigned char color2[3] = { color.R, color.G, color.B };
-
-		PlotGaussian(pixels, c_2DImageSize, c_2DImageSize, px, py, c_2DPointSigma, color2);
-	}
+	DrawLambda(pixels, c_2DImageSize, c_2DImageSize, 3);
 
 	stbi_write_png(fileName, c_2DImageSize, c_2DImageSize, 3, pixels.data(), 0);
 }
@@ -234,30 +209,7 @@ void DoTest2D(const char* baseFileName)
 	{
 		gaussian.center = float2{ distPos(rng), distPos(rng) };
 		gaussian.sigma = float2{ distSigma(rng), distSigma(rng) };
-
-		// TODO: temp!
-
-		//gaussian.center = float2{ 0.0f, 0.0f };
-		//gaussian.sigma = float2{ 0.25f, 100.0f };
-		//gaussian.sigma = float2{ 100.0f, 0.25f };
-
 	}
-
-	// TODO: temp!
-	/*
-	
-	gaussians[0].center = float2{0.0f, 0.0f};
-	gaussians[0].sigma = float2{ 100.0f, 0.25f };
-
-	gaussians[1].center = float2{ 0.0f, 1.0f };
-	gaussians[1].sigma = float2{ 100.0f, 0.25f };
-	*/
-
-	// TODO: show points of gradient descent for a couple different learning rates, and for adam,
-	// TODO: make a CSV of movement length each step, to graph it?
-	// TODO: report only c_2DNumProgressReports instead of always? or maybe the number of steps should be small enough that we should show every time?
-	// TODO: how do we get the gradient of multiple gaussians? sum the gradient of each gaussian. work out the formula for a single gaussian.
-	// TODO: maybe have the regular GD points be one color, and the adam points be another color
 
 	// Randomly init starting points
 	std::vector<std::vector<float2>> allPoints(_countof(c_2DLearningRates));
@@ -272,13 +224,54 @@ void DoTest2D(const char* baseFileName)
 	for (AdamPoint& p : adamPoints)
 		p.m_point = float2{ distPos(rng), distPos(rng) };
 
+	auto DrawPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
+		{
+			int pointIndex = 0;
+			for (const std::vector<float2>& points : allPoints)
+			{
+				for (const float2& point : points)
+				{
+					int px = Clamp(int(point[0] * width), 0, width - 1);
+					int py = Clamp(int(point[1] * height), 0, height - 1);
+
+					RGBu8 color = IndexToColor(pointIndex);
+					unsigned char color2[3] = { color.R, color.G, color.B };
+
+					PlotCircle(pixels, width, height, px, py, c_2DPointRadius, color2);
+				}
+				pointIndex++;
+			}
+		}
+	;
+	
+	auto DrawAdamPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
+		{
+			// draw the adam points
+			int pointIndex = c_2DNumAdamPoints * _countof(c_2DLearningRates);
+			for (const AdamPoint& point : adamPoints)
+			{
+				int px = Clamp(int(point.m_point[0] * width), 0, width - 1);
+				int py = Clamp(int(point.m_point[1] * height), 0, height - 1);
+
+				RGBu8 color = IndexToColor(pointIndex);
+				unsigned char color2[3] = { color.R, color.G, color.B };
+
+				PlotCircle(pixels, width, height, px, py, c_2DPointRadius, color2);
+			}
+		}
+	;
+
 	// Iterate
 	char fileName[1024];
 	for (int i = 0; i < c_2DNumSteps; ++i)
 	{
+		printf("\r%i/%i", i, c_2DNumSteps);
+
 		// show where the points are
-		sprintf_s(fileName, "%s%u_%i.png", baseFileName, seed, i);
-		DrawGaussians(gaussians, allPoints, adamPoints, fileName);
+		sprintf_s(fileName, "out/%s_GD_%u_%i.png", baseFileName, seed, i);
+		DrawGaussians(gaussians, fileName, DrawPoints);
+		sprintf_s(fileName, "out/%s_Adam_%u_%i.png", baseFileName, seed, i);
+		DrawGaussians(gaussians, fileName, DrawAdamPoints);
 
 		// update the points
 		for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
@@ -307,23 +300,29 @@ void DoTest2D(const char* baseFileName)
 			point.m_point[1] = Clamp(point.m_point[1], 0.0f, 1.0f);
 		}
 	}
+	printf("\r%i/%i\n", c_2DNumSteps, c_2DNumSteps);
 
 	// show the final position
-	sprintf_s(fileName, "%s%u_%i.png", baseFileName, seed, c_2DNumSteps);
-	DrawGaussians(gaussians, allPoints, adamPoints, fileName);
+	sprintf_s(fileName, "out/%s_GD_%u_%i.png", baseFileName, seed, c_2DNumSteps);
+	DrawGaussians(gaussians, fileName, DrawPoints);
+	sprintf_s(fileName, "out/%s_Adam_%u_%i.png", baseFileName, seed, c_2DNumSteps);
+	DrawGaussians(gaussians, fileName, DrawAdamPoints);
 }
 
 int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	DoTest2D("out/2D_");
+	DoTest2D("2D");
 	
 	return 0;
 }
 
 /*
 TODO:
+* show points of gradient descent for a couple different learning rates, and for adam,
+* make a CSV of movement length each step, to graph it?
+* clean up the adam code. less storage, cleaner to do values in bulk etc.
 * the combined point set is too confusing. too many point colors all at once.
 * plot a circle instead of a gaussian blob! the sigma can be replaced with radius
 * make DrawGaussians take a vector of vector of points.

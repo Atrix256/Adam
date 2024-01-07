@@ -49,6 +49,12 @@ inline float Lerp(float A, float B, float t)
 	return A * (1.0f - t) + B * t;
 }
 
+inline float SmoothStep(float edge0, float edge1, float x)
+{
+	x = Clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+	return x * x * (3.0f - 2.0f * x);
+}
+
 inline float Gaussian(float x, float sigma)
 {
 	return std::exp(-(x * x) / (2.0f * sigma * sigma));
