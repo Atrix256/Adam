@@ -343,11 +343,15 @@ Notes:
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
 https://machinelearningmastery.com/adam-optimization-from-scratch/
 
+also: https://www.youtube.com/watch?v=JXQT_vxqwIs
+ * talks about hyper parameters and how you need to tune alpha.
+
 Blog:
 * show 1d and 2d both? or maybe just 2d
 * show that you are using fewer colors to show the topo map?
 * could show a bunch of regular gradient descent points first, and show how faster learning rate ones don't settle down. before showing adam.
 * say and show that formula for m and v is equivelent to lerping
-
+* compare learning rates in gradient descenet.
+* compare alpha values in adam.
 
 */
