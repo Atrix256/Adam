@@ -65,8 +65,8 @@ float Gaussian(const Vec<N>& x, const Vec<N>& sigma)
 
 inline float GaussianDerivative(float x, float sigma)
 {
-	float denom = 2.0f * sigma * sigma;
-	return -denom * x * Gaussian(x, sigma);
+	float denom = (2.0f * sigma * sigma);
+	return -2.0f / denom * x * Gaussian(x, sigma);
 }
 
 struct RGBf
