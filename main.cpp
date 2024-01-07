@@ -2,9 +2,9 @@
 
 // Parameters
 #define DETERMINISTIC() true
-#define DETERMINISTIC_SEED() 2629819142  // Nice geometry, and a pink ball doesn't settle in correctly
+#define DETERMINISTIC_SEED() 927170769
 
-static const int   c_2DNumSteps = 20;
+static const int   c_2DNumSteps = 100;
 
 static const float c_2DLearningRates[] = { 0.001f, 0.0001f, 0.01f };
 static const int   c_2DPointsPerLearningRate = 20;
@@ -377,5 +377,6 @@ Blog:
 * say and show that formula for m and v is equivelent to lerping
 * compare learning rates in gradient descenet.
 * compare alpha values in adam.
+* momentum is kind of a "local search" to see if anything nearby leads lower.
 
 */
