@@ -5,10 +5,10 @@
 #define DETERMINISTIC_SEED() 2629819142  // Nice geometry, and a pink ball doesn't settle in correctly
 
 static const int   c_2DNumSteps = 100;
-static const float c_2DLearningRates[] = { 0.005f, 0.01f, 0.02f, 0.2f };
-static const int   c_2DPointsPerLearningRate = 1;
-static const float c_2DLearningRateMultiplier = 1.0f / 10.0f;
-static const int   c_2DNumAdamPoints = 1;
+static const int   c_2DPointsPerLearningRate = 20;
+static const int   c_2DNumAdamPoints = 20; // Aqua
+static const float c_2DLearningRates[] = { 0.5f, 1.0f, 2.0f, 10.0f }; // Red, Blue, Green, Magenta
+static const float c_2DLearningRateMultiplier = 1.0f / 1000.0f;
 
 static const int   c_2DNumGaussians = 25;
 static const float c_2DSigmaMin = 0.05f;
@@ -324,6 +324,8 @@ int main(int argc, char** argv)
 
 /*
 TODO:
+* the combined point set is too confusing. too many point colors all at once.
+* plot a circle instead of a gaussian blob! the sigma can be replaced with radius
 * make DrawGaussians take a vector of vector of points.
  * all [0] points colored the same, all [1] points colored the same, ... all [n] points colored the same.
  * have a points set for each learning rate, and another for adam points
