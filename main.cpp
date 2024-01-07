@@ -9,16 +9,16 @@ static const int   c_2DNumSteps = 100;
 static const int   c_2DPointsPerLearningRate = 20;
 static const float c_2DLearningRates[] = { 0.5f, 1.0f, 2.0f, 10.0f }; // Red, Blue, Green, Magenta
 static const float c_2DLearningRateMultiplier = 1.0f / 1000.0f;
-static const int   c_2DNumAdamPoints = 20; // Aqua
 
-
+static const float c_2DAdamAlphas[] = {0.01f, 0.01f, 0.1f, 1.0f};
+static const int   c_2DNumAdamPoints = 20; // Aqua and so on
 
 static const int   c_2DNumGaussians = 25;
 static const float c_2DSigmaMin = 0.05f;
 static const float c_2DSigmaMax = 0.2f;
 
 static const int   c_2DImageSize = 256;
-static const float c_2DPointRadius = 2.0f;
+static const float c_2DPointRadius = 2.0f * float(c_2DImageSize) / 256.0f;
 static const int   c_2DTopoColors = 16;
 
 #include <stdio.h>
@@ -38,6 +38,7 @@ struct Gauss2D
 	float2 sigma;
 };
 
+// Note: alpha needs to be tuned, but beta1, beta2, epsilon as usually fine as is
 struct Adam
 {
 	Adam(float alpha = 0.01f, float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 0.0001f)
@@ -220,9 +221,20 @@ void DoTest2D(const char* baseFileName)
 			p = float2{ distPos(rng), distPos(rng) };
 	}
 
-	std::vector<AdamPoint> adamPoints(c_2DNumAdamPoints);
-	for (AdamPoint& p : adamPoints)
-		p.m_point = float2{ distPos(rng), distPos(rng) };
+	std::vector<std::vector<AdamPoint>> allAdamPoints(_countof(c_2DAdamAlphas));
+	for (size_t alphaIndex = 0; alphaIndex < _countof(c_2DAdamAlphas); ++alphaIndex)
+	{
+		std::vector<AdamPoint>& adamPoints = allAdamPoints[alphaIndex];
+		float alpha = c_2DAdamAlphas[alphaIndex];
+
+		adamPoints.resize(c_2DNumAdamPoints);
+		for (AdamPoint& p : adamPoints)
+		{
+			p.m_point = float2{ distPos(rng), distPos(rng) };
+			p.m_adamX.m_alpha = alpha;
+			p.m_adamY.m_alpha = alpha;
+		}
+	}
 
 	auto DrawPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
 		{
@@ -247,16 +259,20 @@ void DoTest2D(const char* baseFileName)
 	auto DrawAdamPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
 		{
 			// draw the adam points
-			int pointIndex = c_2DNumAdamPoints * _countof(c_2DLearningRates);
-			for (const AdamPoint& point : adamPoints)
+			int pointIndex = c_2DPointsPerLearningRate * _countof(c_2DLearningRates);
+			for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
 			{
-				int px = Clamp(int(point.m_point[0] * width), 0, width - 1);
-				int py = Clamp(int(point.m_point[1] * height), 0, height - 1);
+				for (const AdamPoint& point : adamPoints)
+				{
+					int px = Clamp(int(point.m_point[0] * width), 0, width - 1);
+					int py = Clamp(int(point.m_point[1] * height), 0, height - 1);
 
-				RGBu8 color = IndexToColor(pointIndex);
-				unsigned char color2[3] = { color.R, color.G, color.B };
+					RGBu8 color = IndexToColor(pointIndex);
+					unsigned char color2[3] = { color.R, color.G, color.B };
 
-				PlotCircle(pixels, width, height, px, py, c_2DPointRadius, color2);
+					PlotCircle(pixels, width, height, px, py, c_2DPointRadius, color2);
+				}
+				pointIndex++;
 			}
 		}
 	;
@@ -287,17 +303,20 @@ void DoTest2D(const char* baseFileName)
 		}
 
 		// update the adam points
-		for (AdamPoint& point : adamPoints)
+		for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
 		{
-			float2 grad = FGradient(gaussians, point.m_point);
+			for (AdamPoint& point : adamPoints)
+			{
+				float2 grad = FGradient(gaussians, point.m_point);
 
-			float2 adjustedGrad;
-			adjustedGrad[0] = point.m_adamX.AdjustDerivative(grad[0]);
-			adjustedGrad[1] = point.m_adamY.AdjustDerivative(grad[1]);
+				float2 adjustedGrad;
+				adjustedGrad[0] = point.m_adamX.AdjustDerivative(grad[0]);
+				adjustedGrad[1] = point.m_adamY.AdjustDerivative(grad[1]);
 
-			point.m_point = point.m_point + adjustedGrad;
-			point.m_point[0] = Clamp(point.m_point[0], 0.0f, 1.0f);
-			point.m_point[1] = Clamp(point.m_point[1], 0.0f, 1.0f);
+				point.m_point = point.m_point + adjustedGrad;
+				point.m_point[0] = Clamp(point.m_point[0], 0.0f, 1.0f);
+				point.m_point[1] = Clamp(point.m_point[1], 0.0f, 1.0f);
+			}
 		}
 	}
 	printf("\r%i/%i\n", c_2DNumSteps, c_2DNumSteps);
@@ -323,19 +342,11 @@ TODO:
 * show points of gradient descent for a couple different learning rates, and for adam,
 * make a CSV of movement length each step, to graph it?
 * clean up the adam code. less storage, cleaner to do values in bulk etc.
+ * AdjustDerivative() should be called something else. Maybe "apply gradient" or something, and actually adjust the position? idk.
 * the combined point set is too confusing. too many point colors all at once.
-* plot a circle instead of a gaussian blob! the sigma can be replaced with radius
-* make DrawGaussians take a vector of vector of points.
- * all [0] points colored the same, all [1] points colored the same, ... all [n] points colored the same.
- * have a points set for each learning rate, and another for adam points
 * why are we adding gradient instead of subtracting it?
 * could figure out how to do actual topo lines. like SDF lines.
-* I don't think the gradient is correct. points aren't settling into local minimas in the gaussians
- * the gradient seems to have a reversed sign i think? it's going up hill when i subtract it.
-? should we have multiple points with the same learning rate (showing a flock of rolling balls? or just a single one?)
-* do 1d examples first?
-* maybe sum of random gaussians?
-* could also print out CSVs and graph error / convergence
+* could also print out CSVs and graph error / convergence? if needed
 * animated gif output? (stb, then make in gimp?)
 
 Notes:
