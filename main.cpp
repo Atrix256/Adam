@@ -4,14 +4,13 @@
 #define DETERMINISTIC() true
 #define DETERMINISTIC_SEED() 2629819142  // Nice geometry, and a pink ball doesn't settle in correctly
 
-static const int   c_2DNumSteps = 100;
+static const int   c_2DNumSteps = 20;
 
+static const float c_2DLearningRates[] = { 0.001f, 0.0001f, 0.01f };
 static const int   c_2DPointsPerLearningRate = 20;
-static const float c_2DLearningRates[] = { 0.5f, 1.0f, 2.0f, 10.0f }; // Red, Blue, Green, Magenta
-static const float c_2DLearningRateMultiplier = 1.0f / 1000.0f;
 
-static const float c_2DAdamAlphas[] = {0.01f, 0.01f, 0.1f, 1.0f};
-static const int   c_2DNumAdamPoints = 20; // Aqua and so on
+static const float c_2DAdamAlphas[] = { 0.01f, 0.001f, 0.1f };
+static const int   c_2DNumAdamPoints = 20;
 
 static const int   c_2DNumGaussians = 25;
 static const float c_2DSigmaMin = 0.05f;
@@ -36,6 +35,7 @@ struct Gauss2D
 {
 	float2 center;
 	float2 sigma;
+	float amplitude = 1.0f;
 };
 
 // Note: alpha needs to be tuned, but beta1, beta2, epsilon as usually fine as is
@@ -98,7 +98,7 @@ float F(const std::vector<Gauss2D>& gaussians, const float2& x)
 {
 	float ret = 0.0f;
 	for (const Gauss2D& gaussian : gaussians)
-		ret += Gaussian(gaussian.center - x, gaussian.sigma);
+		ret += gaussian.amplitude * Gaussian(gaussian.center - x, gaussian.sigma);
 	return ret;
 }
 
@@ -107,8 +107,8 @@ float2 FGradient(const std::vector<Gauss2D>& gaussians, const float2& x)
 	float2 ret = float2{ 0.0f, 0.0f };
 	for (const Gauss2D& gaussian : gaussians)
 	{
-		ret[0] += GaussianDerivative(gaussian.center[0] - x[0], gaussian.sigma[0]) * Gaussian(gaussian.center[1] - x[1], gaussian.sigma[1]);
-		ret[1] += GaussianDerivative(gaussian.center[1] - x[1], gaussian.sigma[1]) * Gaussian(gaussian.center[0] - x[0], gaussian.sigma[0]);
+		ret[0] += gaussian.amplitude * GaussianDerivative(gaussian.center[0] - x[0], gaussian.sigma[0]) * Gaussian(gaussian.center[1] - x[1], gaussian.sigma[1]);
+		ret[1] += gaussian.amplitude * GaussianDerivative(gaussian.center[1] - x[1], gaussian.sigma[1]) * Gaussian(gaussian.center[0] - x[0], gaussian.sigma[0]);
 	}
 	return ret;
 }
@@ -151,7 +151,8 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 	// Gather up the gaussian pixel values
 	std::vector<float> pixelsF(c_2DImageSize * c_2DImageSize, 0.0f);
 	float* pixelF = pixelsF.data();
-	float maxValue = 0.0f;
+	float minValue = FLT_MAX;
+	float maxValue = -FLT_MAX;
 	for (int i = 0; i < c_2DImageSize * c_2DImageSize; ++i)
 	{
 		int x = i % c_2DImageSize;
@@ -164,6 +165,7 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 
 		*pixelF += F(gaussians, uv);
 
+		minValue = std::min(minValue, *pixelF);
 		maxValue = std::max(maxValue, *pixelF);
 
 		pixelF++;
@@ -173,7 +175,7 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 	std::vector<unsigned char> pixels(c_2DImageSize * c_2DImageSize * 3, 0);
 	for (size_t i = 0; i < c_2DImageSize * c_2DImageSize; ++i)
 	{
-		float pixelFNormalized = pixelsF[i] / maxValue;
+		float pixelFNormalized = (pixelsF[i] - minValue) / (maxValue - minValue);
 		float pixelFNormalizedTopo = pixelFNormalized;
 
 		if (c_2DTopoColors > 0)
@@ -210,6 +212,15 @@ void DoTest2D(const char* baseFileName)
 	{
 		gaussian.center = float2{ distPos(rng), distPos(rng) };
 		gaussian.sigma = float2{ distSigma(rng), distSigma(rng) };
+	}
+
+	// add another gaussian that is a bowl, to keep the points in
+	{
+		Gauss2D bowl;
+		bowl.center = float2{ 0.5f, 0.5f };
+		bowl.sigma = float2{ 0.5f, 0.5f };
+		bowl.amplitude = -1.0f * std::sqrt(float(c_2DNumGaussians));
+		gaussians.push_back(bowl);
 	}
 
 	// Randomly init starting points
@@ -296,7 +307,7 @@ void DoTest2D(const char* baseFileName)
 			for (float2& p : points)
 			{
 				float2 grad = FGradient(gaussians, p);
-				p = p + grad * c_2DLearningRates[learningRateIndex] * c_2DLearningRateMultiplier;
+				p = p + grad * c_2DLearningRates[learningRateIndex];
 				p[0] = Clamp(p[0], 0.0f, 1.0f);
 				p[1] = Clamp(p[1], 0.0f, 1.0f);
 			}
