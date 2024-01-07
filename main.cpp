@@ -4,12 +4,11 @@
 #define DETERMINISTIC() true
 #define DETERMINISTIC_SEED() 2629819142  // Nice geometry, and a pink ball doesn't settle in correctly
 
-
 static const int   c_2DNumSteps = 100;
-static const float c_2DLearningRates[] = { 0.005f, 0.01f, 0.02f, 0.2f, 0.005f, 0.01f, 0.02f, 0.2f, 0.005f, 0.01f, 0.02f, 0.2f, 0.005f, 0.01f, 0.02f, 0.2f };
-//static const int
+static const float c_2DLearningRates[] = { 0.005f, 0.01f, 0.02f, 0.2f };
+static const int   c_2DPointsPerLearningRate = 1;
 static const float c_2DLearningRateMultiplier = 1.0f / 10.0f;
-static const int   c_2DNumAdamPoints = 10;
+static const int   c_2DNumAdamPoints = 1;
 
 static const int   c_2DNumGaussians = 25;
 static const float c_2DSigmaMin = 0.05f;
@@ -144,7 +143,7 @@ static void PlotGaussian(std::vector<unsigned char>& image, int width, int heigh
 	}
 }
 
-void DrawGaussians(const std::vector<Gauss2D>& gaussians, const std::vector<float2>& points, const std::vector<AdamPoint>& adamPoints, const char* fileName)
+void DrawGaussians(const std::vector<Gauss2D>& gaussians, const std::vector<std::vector<float2>>& allPoints, const std::vector<AdamPoint>& adamPoints, const char* fileName)
 {
 	// Gather up the gaussian pixel values
 	std::vector<float> pixelsF(c_2DImageSize * c_2DImageSize, 0.0f);
@@ -186,27 +185,29 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const std::vector<floa
 	}
 
 	// draw the points
-	int pointIndex = -1;
-	for (const float2& point : points)
+	int pointIndex = 0;
+	for (const std::vector<float2>& points : allPoints)
 	{
+		for (const float2& point : points)
+		{
+			int px = Clamp(int(point[0] * c_2DImageSize), 0, c_2DImageSize - 1);
+			int py = Clamp(int(point[1] * c_2DImageSize), 0, c_2DImageSize - 1);
+
+			RGBu8 color = IndexToColor(pointIndex);
+			unsigned char color2[3] = { color.R, color.G, color.B };
+
+			PlotGaussian(pixels, c_2DImageSize, c_2DImageSize, px, py, c_2DPointSigma, color2);
+		}
 		pointIndex++;
-		int px = Clamp(int(point[0] * c_2DImageSize), 0, c_2DImageSize - 1);
-		int py = Clamp(int(point[1] * c_2DImageSize), 0, c_2DImageSize - 1);
-
-		RGBu8 color = IndexToColor(0);
-		unsigned char color2[3] = { color.R, color.G, color.B };
-
-		PlotGaussian(pixels, c_2DImageSize, c_2DImageSize, px, py, c_2DPointSigma, color2);
 	}
 
 	// draw the adam points
 	for (const AdamPoint& point : adamPoints)
 	{
-		pointIndex++;
 		int px = Clamp(int(point.m_point[0] * c_2DImageSize), 0, c_2DImageSize - 1);
 		int py = Clamp(int(point.m_point[1] * c_2DImageSize), 0, c_2DImageSize - 1);
 
-		RGBu8 color = IndexToColor(1);
+		RGBu8 color = IndexToColor(pointIndex);
 		unsigned char color2[3] = { color.R, color.G, color.B };
 
 		PlotGaussian(pixels, c_2DImageSize, c_2DImageSize, px, py, c_2DPointSigma, color2);
@@ -258,10 +259,14 @@ void DoTest2D(const char* baseFileName)
 	// TODO: how do we get the gradient of multiple gaussians? sum the gradient of each gaussian. work out the formula for a single gaussian.
 	// TODO: maybe have the regular GD points be one color, and the adam points be another color
 
-	// Randomly init our starting points
-	std::vector<float2> points(_countof(c_2DLearningRates));
-	for (float2& p : points)
-		p = float2{ distPos(rng), distPos(rng) };
+	// Randomly init starting points
+	std::vector<std::vector<float2>> allPoints(_countof(c_2DLearningRates));
+	for (std::vector<float2>& points : allPoints)
+	{
+		points.resize(c_2DPointsPerLearningRate);
+		for (float2& p : points)
+			p = float2{ distPos(rng), distPos(rng) };
+	}
 
 	std::vector<AdamPoint> adamPoints(c_2DNumAdamPoints);
 	for (AdamPoint& p : adamPoints)
@@ -273,16 +278,19 @@ void DoTest2D(const char* baseFileName)
 	{
 		// show where the points are
 		sprintf_s(fileName, "%s%u_%i.png", baseFileName, seed, i);
-		DrawGaussians(gaussians, points, adamPoints, fileName);
+		DrawGaussians(gaussians, allPoints, adamPoints, fileName);
 
 		// update the points
 		for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
 		{
-			float2& p = points[learningRateIndex];
-			float2 grad = FGradient(gaussians, p);
-			p = p + grad * c_2DLearningRates[learningRateIndex] * c_2DLearningRateMultiplier;
-			p[0] = Clamp(p[0], 0.0f, 1.0f);
-			p[1] = Clamp(p[1], 0.0f, 1.0f);
+			std::vector<float2>& points = allPoints[learningRateIndex];
+			for (float2& p : points)
+			{
+				float2 grad = FGradient(gaussians, p);
+				p = p + grad * c_2DLearningRates[learningRateIndex] * c_2DLearningRateMultiplier;
+				p[0] = Clamp(p[0], 0.0f, 1.0f);
+				p[1] = Clamp(p[1], 0.0f, 1.0f);
+			}
 		}
 
 		// update the adam points
@@ -302,7 +310,7 @@ void DoTest2D(const char* baseFileName)
 
 	// show the final position
 	sprintf_s(fileName, "%s%u_%i.png", baseFileName, seed, c_2DNumSteps);
-	DrawGaussians(gaussians, points, adamPoints, fileName);
+	DrawGaussians(gaussians, allPoints, adamPoints, fileName);
 }
 
 int main(int argc, char** argv)
