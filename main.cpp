@@ -339,6 +339,7 @@ int main(int argc, char** argv)
 
 /*
 TODO:
+* make the first gaussian be subtracted and make the whole area into a bowl? to keep the minimums in the texture region properly. unsure what to make the amplitude though.
 * show points of gradient descent for a couple different learning rates, and for adam,
 * make a CSV of movement length each step, to graph it?
 * clean up the adam code. less storage, cleaner to do values in bulk etc.
@@ -347,7 +348,9 @@ TODO:
 * why are we adding gradient instead of subtracting it?
 * could figure out how to do actual topo lines. like SDF lines.
 * could also print out CSVs and graph error / convergence? if needed
+ * maybe a line for each learning rate, and alpha. so like 6 or 8 lines or whatever.
 * animated gif output? (stb, then make in gimp?)
+ * could maybe make the GD and Adam images be side by side so the animated gif shows both in sync at the same time
 
 Notes:
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
