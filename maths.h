@@ -32,6 +32,15 @@ Vec<N> operator * (const Vec<N>& A, float B)
 	return ret;
 }
 
+template <size_t N>
+float Length(const Vec<N>& V)
+{
+	float ret = 0.0f;
+	for (float f : V)
+		ret += f * f;
+	return std::sqrt(ret);
+}
+
 template <typename T>
 inline T Clamp(T value, T themin, T themax)
 {

@@ -1,15 +1,15 @@
 #define _CRT_SECURE_NO_WARNINGS // for stb
 
 // Parameters
-#define DETERMINISTIC() true
+#define DETERMINISTIC() false
 #define DETERMINISTIC_SEED() 927170769
 
 static const int   c_2DNumSteps = 100;
 
-static const float c_2DLearningRates[] = { 0.001f, 0.0001f, 0.01f };
+static const float c_2DLearningRates[] = { 0.01f, 0.001f, 0.0001f };
 static const int   c_2DPointsPerLearningRate = 20;
 
-static const float c_2DAdamAlphas[] = { 0.01f, 0.001f, 0.1f };
+static const float c_2DAdamAlphas[] = { 0.1f, 0.01f, 0.001f };
 static const int   c_2DNumAdamPoints = 20;
 
 static const int   c_2DNumGaussians = 25;
@@ -17,6 +17,8 @@ static const float c_2DSigmaMin = 0.05f;
 static const float c_2DSigmaMax = 0.2f;
 
 static const int   c_2DImageSize = 256;
+static const int   c_2DImagePaddingH = 8;
+static const int   c_2DImagePaddingV = 8;
 static const float c_2DPointRadius = 2.0f * float(c_2DImageSize) / 256.0f;
 static const int   c_2DTopoColors = 16;
 
@@ -41,7 +43,7 @@ struct Gauss2D
 // Note: alpha needs to be tuned, but beta1, beta2, epsilon as usually fine as is
 struct Adam
 {
-	Adam(float alpha = 0.01f, float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 0.0001f)
+	Adam(float alpha = 0.01f, float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 1e-8f)
 		: m_m(0.0f)
 		, m_v(0.0f)
 		, m_alpha(alpha)
@@ -63,7 +65,7 @@ struct Adam
 	float m_beta1Decayed = 0.0f;
 	float m_beta2Decayed = 0.0f;
 
-	float AdjustDerivative(float derivative)
+	float GetTranslation(float derivative)
 	{
 		m_m = m_beta1 * m_m + (1.0f - m_beta1) * derivative;
 		m_v = m_beta2 * m_v + (1.0f - m_beta2) * derivative * derivative;
@@ -145,8 +147,8 @@ static void PlotCircle(std::vector<unsigned char>& image, int width, int height,
 	}
 }
 
-template <typename TDrawLambda>
-void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, const TDrawLambda& DrawLambda)
+template <typename TDrawLambdaLeft, typename TDrawLambdaRight>
+void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, const TDrawLambdaLeft& DrawLambdaLeft, const TDrawLambdaRight& DrawLambdaRight, int frameNum, int frameMax)
 {
 	// Gather up the gaussian pixel values
 	std::vector<float> pixelsF(c_2DImageSize * c_2DImageSize, 0.0f);
@@ -172,7 +174,7 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 	}
 
 	// normalize and convert to U8
-	std::vector<unsigned char> pixels(c_2DImageSize * c_2DImageSize * 3, 0);
+	std::vector<unsigned char> pixelsLeft(c_2DImageSize * c_2DImageSize * 3, 0);
 	for (size_t i = 0; i < c_2DImageSize * c_2DImageSize; ++i)
 	{
 		float pixelFNormalized = (pixelsF[i] - minValue) / (maxValue - minValue);
@@ -184,25 +186,64 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 		unsigned char U8 = (unsigned char)Clamp(255.0f * pixelFNormalized, 0.0f, 255.0f);
 		unsigned char U8Topo = (unsigned char)Clamp(255.0f * pixelFNormalizedTopo, 0.0f, 255.0f);
 
-		pixels[i * 3 + 0] = U8Topo;
-		pixels[i * 3 + 1] = U8Topo;
-		pixels[i * 3 + 2] = U8Topo;
+		pixelsLeft[i * 3 + 0] = U8Topo;
+		pixelsLeft[i * 3 + 1] = U8Topo;
+		pixelsLeft[i * 3 + 2] = U8Topo;
+	}
+	std::vector<unsigned char> pixelsRight = pixelsLeft;
+
+	// Custom drawing on left
+	DrawLambdaLeft(pixelsLeft, c_2DImageSize, c_2DImageSize, 3);
+
+	// Custom drawing on right
+	DrawLambdaRight(pixelsRight, c_2DImageSize, c_2DImageSize, 3);
+
+	// stick the images together
+	int combinedImageWidth = (c_2DImageSize * 2 + c_2DImagePaddingH);
+	int combinedImageHeight = (c_2DImageSize + c_2DImagePaddingV);
+	std::vector<unsigned char> pixels(combinedImageWidth * combinedImageHeight * 3, 255);
+	for (size_t iy = 0; iy < c_2DImageSize; ++iy)
+	{
+		memcpy(&pixels[iy * combinedImageWidth * 3], &pixelsLeft[iy * c_2DImageSize * 3], c_2DImageSize * 3);
+		memcpy(&pixels[(iy * combinedImageWidth + c_2DImageSize + c_2DImagePaddingH) * 3], &pixelsRight[iy * c_2DImageSize * 3], c_2DImageSize * 3);
 	}
 
-	DrawLambda(pixels, c_2DImageSize, c_2DImageSize, 3);
+	// show the progress bar at the bottom
+	{
+		int doneX = int(float(combinedImageWidth) * float(frameNum) / float(frameMax));
 
-	stbi_write_png(fileName, c_2DImageSize, c_2DImageSize, 3, pixels.data(), 0);
+		for (int iy = c_2DImageSize; iy < combinedImageHeight; ++iy)
+		{
+			unsigned char* pixel = &pixels[iy * combinedImageWidth * 3];
+
+			for (int ix = 0; ix < combinedImageWidth; ++ix)
+			{
+				if (ix < doneX)
+				{
+					pixel[0] = 0;
+					pixel[1] = 255;
+					pixel[2] = 0;
+				}
+				else
+				{
+					pixel[0] = 0;
+					pixel[1] = 64;
+					pixel[2] = 0;
+				}
+				pixel += 3;
+			}
+		}
+	}
+
+	// save it
+	stbi_write_png(fileName, combinedImageWidth, combinedImageHeight, 3, pixels.data(), 0);
 }
 
-void DoTest2D(const char* baseFileName)
+void DoTest2D()
 {
 	unsigned int seed = DETERMINISTIC_SEED();
 	std::mt19937 rng = GetRNG(seed);
-
 	printf("Seed = %u\n", seed);
-
-	// TODO: temp!
-	seed = 0;
 
 	// Generate the randomized gaussians
 	std::uniform_real_distribution<float> distPos(0.0f, 1.0f);
@@ -266,7 +307,7 @@ void DoTest2D(const char* baseFileName)
 			}
 		}
 	;
-	
+
 	auto DrawAdamPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
 		{
 			// draw the adam points
@@ -288,89 +329,163 @@ void DoTest2D(const char* baseFileName)
 		}
 	;
 
-	// Iterate
+	// Open the csv
 	char fileName[1024];
+	FILE* csvFile = nullptr;
+	sprintf_s(fileName, "out/2D_%u.csv", seed);
+	fopen_s(&csvFile, fileName, "wb");
+	fprintf(csvFile, "\"Step\"");
+	for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
+		fprintf(csvFile, ",\"GD LR %f\"", c_2DLearningRates[learningRateIndex]);
+	for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DAdamAlphas); ++learningRateIndex)
+		fprintf(csvFile, ",\"Adam Alpha %f\"", c_2DAdamAlphas[learningRateIndex]);
+	fprintf(csvFile, "\n");
+
+	// write the initial average heights
+	{
+		fprintf(csvFile, "\"%i\"", 0);
+
+		for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
+		{
+			float avgHeight = 0.0f;
+			std::vector<float2>& points = allPoints[learningRateIndex];
+			for (int pointIndex = 0; pointIndex < points.size(); ++pointIndex)
+			{
+				float2& p = points[pointIndex];
+				avgHeight = Lerp(avgHeight, F(gaussians, p), 1.0f / float(pointIndex + 1));
+			}
+			fprintf(csvFile, ",\"%f\"", avgHeight);
+		}
+
+		for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
+		{
+			float avgHeight = 0.0f;
+			for (int pointIndex = 0; pointIndex < adamPoints.size(); ++pointIndex)
+			{
+				float2& p = adamPoints[pointIndex].m_point;
+				avgHeight = Lerp(avgHeight, F(gaussians, p), 1.0f / float(pointIndex + 1));
+			}
+			fprintf(csvFile, ",\"%f\"", avgHeight);
+		}
+		fprintf(csvFile, "\n");
+	}
+
+
+	// Iterate
 	for (int i = 0; i < c_2DNumSteps; ++i)
 	{
 		printf("\r%i/%i", i, c_2DNumSteps);
 
+		fprintf(csvFile, "\"%i\"", i + 1);
+
 		// show where the points are
-		sprintf_s(fileName, "out/%s_GD_%u_%i.png", baseFileName, seed, i);
-		DrawGaussians(gaussians, fileName, DrawPoints);
-		sprintf_s(fileName, "out/%s_Adam_%u_%i.png", baseFileName, seed, i);
-		DrawGaussians(gaussians, fileName, DrawAdamPoints);
+		sprintf_s(fileName, "out/2D_%u_%i.png", seed, i);
+		DrawGaussians(gaussians, fileName, DrawPoints, DrawAdamPoints, i, c_2DNumSteps);
 
 		// update the points
 		for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
 		{
+			float avgHeight = 0.0f;
+
 			std::vector<float2>& points = allPoints[learningRateIndex];
-			for (float2& p : points)
+			for (int pointIndex = 0; pointIndex < points.size(); ++pointIndex)
 			{
+				float2& p = points[pointIndex];
+
 				float2 grad = FGradient(gaussians, p);
 				p = p + grad * c_2DLearningRates[learningRateIndex];
+
 				p[0] = Clamp(p[0], 0.0f, 1.0f);
 				p[1] = Clamp(p[1], 0.0f, 1.0f);
+
+				avgHeight = Lerp(avgHeight, F(gaussians, p), 1.0f / float(pointIndex + 1));
 			}
+
+			fprintf(csvFile, ",\"%f\"", avgHeight);
 		}
 
 		// update the adam points
 		for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
 		{
-			for (AdamPoint& point : adamPoints)
+			float avgHeight = 0.0f;
+
+			for (int pointIndex = 0; pointIndex < adamPoints.size(); ++pointIndex)
 			{
+				AdamPoint& point = adamPoints[pointIndex];
+
 				float2 grad = FGradient(gaussians, point.m_point);
 
 				float2 adjustedGrad;
-				adjustedGrad[0] = point.m_adamX.AdjustDerivative(grad[0]);
-				adjustedGrad[1] = point.m_adamY.AdjustDerivative(grad[1]);
+				adjustedGrad[0] = point.m_adamX.GetTranslation(grad[0]);
+				adjustedGrad[1] = point.m_adamY.GetTranslation(grad[1]);
 
 				point.m_point = point.m_point + adjustedGrad;
 				point.m_point[0] = Clamp(point.m_point[0], 0.0f, 1.0f);
 				point.m_point[1] = Clamp(point.m_point[1], 0.0f, 1.0f);
+
+				avgHeight = Lerp(avgHeight, F(gaussians, point.m_point), 1.0f / float(pointIndex + 1));
 			}
+
+			fprintf(csvFile, ",\"%f\"", avgHeight);
 		}
+
+		fprintf(csvFile, "\n");
 	}
 	printf("\r%i/%i\n", c_2DNumSteps, c_2DNumSteps);
 
+	// close the CSV
+	fclose(csvFile);
+
 	// show the final position
-	sprintf_s(fileName, "out/%s_GD_%u_%i.png", baseFileName, seed, c_2DNumSteps);
-	DrawGaussians(gaussians, fileName, DrawPoints);
-	sprintf_s(fileName, "out/%s_Adam_%u_%i.png", baseFileName, seed, c_2DNumSteps);
-	DrawGaussians(gaussians, fileName, DrawAdamPoints);
+	sprintf_s(fileName, "out/2D_%u_%i.png", seed, c_2DNumSteps);
+	DrawGaussians(gaussians, fileName, DrawPoints, DrawAdamPoints, c_2DNumSteps, c_2DNumSteps);
 }
 
 int main(int argc, char** argv)
 {
 	_mkdir("out");
 
-	DoTest2D("2D");
+	DoTest2D();
+
+	/*
+	for (int i = 0; i < 6; ++i)
+	{
+		RGBu8 color = IndexToColor(i);
+		printf("[%i] : (%f, %f, %f)\n", i, color.R / 255.0f, color.G / 255.0f, color.B / 255.0f);
+	}
+	*/
 	
 	return 0;
 }
 
 /*
 TODO:
-* make the first gaussian be subtracted and make the whole area into a bowl? to keep the minimums in the texture region properly. unsure what to make the amplitude though.
-* show points of gradient descent for a couple different learning rates, and for adam,
-* make a CSV of movement length each step, to graph it?
+* verify that your adam values are coming up with the same values from the python example.
+
+* could show the average height of each point color in the gif images, like in the center margin.
+
+! apparently, adam learning rate is "whatever causes it not to explode at the start"
+ * also, state of the art is to have alpha change on a schedule. odd. look at the slack link
+ * the graphs seem to say otherwise though.
+
 * clean up the adam code. less storage, cleaner to do values in bulk etc.
- * AdjustDerivative() should be called something else. Maybe "apply gradient" or something, and actually adjust the position? idk.
-* the combined point set is too confusing. too many point colors all at once.
+
 * why are we adding gradient instead of subtracting it?
-* could figure out how to do actual topo lines. like SDF lines.
-* could also print out CSVs and graph error / convergence? if needed
- * maybe a line for each learning rate, and alpha. so like 6 or 8 lines or whatever.
+
 * animated gif output? (stb, then make in gimp?)
  * could maybe make the GD and Adam images be side by side so the animated gif shows both in sync at the same time
+ * yeah, write out the images side by side, instead of individually. can put a border between them or something though.
 
 Notes:
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
 https://machinelearningmastery.com/adam-optimization-from-scratch/
+https://www.kdnuggets.com/2022/12/tuning-adam-optimizer-parameters-pytorch.html
 
 also: https://www.youtube.com/watch?v=JXQT_vxqwIs
  * talks about hyper parameters and how you need to tune alpha.
 
 Blog:
+* show a couple random runs of 2d.
 * show 1d and 2d both? or maybe just 2d
 * show that you are using fewer colors to show the topo map?
 * could show a bunch of regular gradient descent points first, and show how faster learning rate ones don't settle down. before showing adam.
@@ -378,5 +493,6 @@ Blog:
 * compare learning rates in gradient descenet.
 * compare alpha values in adam.
 * momentum is kind of a "local search" to see if anything nearby leads lower.
+* notes about finding good values for adam: https://electronic-arts.slack.com/archives/C02CCLV8BL7/p1704740526201589
 
 */
