@@ -79,7 +79,7 @@ for fileName in fileNames:
     ax2.legend()
     ax3.legend()
 
-    fig.suptitle('20 Points Each, Average Height')
+    fig.suptitle('20 Points Each, Average Height : ' + fileName)
 
     ax1.set_ylabel('Height')
     ax1.set_xlabel('Step')

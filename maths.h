@@ -111,6 +111,21 @@ inline RGBf HSVToRGB(float h, float s, float v)
 	}
 }
 
+// SRGB adapted from https://github.com/TheRealMJP/BakingLab
+inline float SRGBToLinear(float color)
+{
+	float x = color / 12.92f;
+	float y = std::pow((color + 0.055f) / 1.055f, 2.4f);
+	return color <= 0.04045f ? x : y;
+}
+
+inline float LinearTosRGB(float color)
+{
+	float x = color * 12.92f;
+	float y = std::pow(color, 1.0f / 2.4f) * 1.055f - 0.055f;
+	return color < 0.0031308f ? x : y;
+}
+
 struct RGBu8
 {
 	unsigned char R;
@@ -122,7 +137,7 @@ struct RGBu8
 // from each other for any N colors desired. Need to use indices [0,N)
 // for this to work though. Just does a 1D low discrepancy sequence
 // for hue, and has constant s and v values.
-inline RGBu8 IndexToColor(int index, float s = 0.5f, float v = 0.95f)
+inline RGBu8 IndexToColor(int index, float s = 1.0f, float v = 1.0f)
 {
 	static const float c_goldenRatioConjugate = 0.61803398875f;
 	float h = std::fmodf(float(index) * c_goldenRatioConjugate, 1.0f);

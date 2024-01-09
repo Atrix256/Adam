@@ -17,7 +17,7 @@ static const float c_2DSigmaMin = 0.05f;
 static const float c_2DSigmaMax = 0.2f;
 
 static const int   c_2DImageSize = 256;
-static const int   c_2DImagePaddingH = 8;
+static const int   c_2DImagePaddingH = 16;
 static const int   c_2DImagePaddingV = 8;
 static const float c_2DPointRadius = 2.0f * float(c_2DImageSize) / 256.0f;
 static const int   c_2DTopoColors = 16;
@@ -147,8 +147,8 @@ static void PlotCircle(std::vector<unsigned char>& image, int width, int height,
 	}
 }
 
-template <typename TDrawLambdaLeft, typename TDrawLambdaRight>
-void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, const TDrawLambdaLeft& DrawLambdaLeft, const TDrawLambdaRight& DrawLambdaRight, int frameNum, int frameMax)
+template <typename TDrawLambdaLeft, typename TDrawLambdaRight, typename TDrawLambdaMiddle>
+void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, const TDrawLambdaLeft& DrawLambdaLeft, const TDrawLambdaRight& DrawLambdaRight, const TDrawLambdaMiddle& DrawLambdaMiddle, int frameNum, int frameMax)
 {
 	// Gather up the gaussian pixel values
 	std::vector<float> pixelsF(c_2DImageSize * c_2DImageSize, 0.0f);
@@ -201,7 +201,7 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 	// stick the images together
 	int combinedImageWidth = (c_2DImageSize * 2 + c_2DImagePaddingH);
 	int combinedImageHeight = (c_2DImageSize + c_2DImagePaddingV);
-	std::vector<unsigned char> pixels(combinedImageWidth * combinedImageHeight * 3, 255);
+	std::vector<unsigned char> pixels(combinedImageWidth * combinedImageHeight * 3, 64);
 	for (size_t iy = 0; iy < c_2DImageSize; ++iy)
 	{
 		memcpy(&pixels[iy * combinedImageWidth * 3], &pixelsLeft[iy * c_2DImageSize * 3], c_2DImageSize * 3);
@@ -235,6 +235,9 @@ void DrawGaussians(const std::vector<Gauss2D>& gaussians, const char* fileName, 
 		}
 	}
 
+	// Other Custom Drawing
+	DrawLambdaMiddle(pixels, combinedImageWidth, combinedImageHeight, 3, c_2DImageSize, c_2DImagePaddingH, c_2DImageSize);
+
 	// save it
 	stbi_write_png(fileName, combinedImageWidth, combinedImageHeight, 3, pixels.data(), 0);
 }
@@ -265,6 +268,7 @@ void DoTest2D()
 	}
 
 	// Randomly init starting points
+	std::vector<float> allPointsAvgHeights(_countof(c_2DLearningRates), 0.0f);
 	std::vector<std::vector<float2>> allPoints(_countof(c_2DLearningRates));
 	for (std::vector<float2>& points : allPoints)
 	{
@@ -273,6 +277,7 @@ void DoTest2D()
 			p = float2{ distPos(rng), distPos(rng) };
 	}
 
+	std::vector<float> allAdamPointsAvgHeights(_countof(c_2DAdamAlphas), 0.0f);
 	std::vector<std::vector<AdamPoint>> allAdamPoints(_countof(c_2DAdamAlphas));
 	for (size_t alphaIndex = 0; alphaIndex < _countof(c_2DAdamAlphas); ++alphaIndex)
 	{
@@ -290,6 +295,7 @@ void DoTest2D()
 
 	auto DrawPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
 		{
+			// draw the points
 			int pointIndex = 0;
 			for (const std::vector<float2>& points : allPoints)
 			{
@@ -311,7 +317,7 @@ void DoTest2D()
 	auto DrawAdamPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
 		{
 			// draw the adam points
-			int pointIndex = c_2DPointsPerLearningRate * _countof(c_2DLearningRates);
+			int pointIndex = _countof(c_2DLearningRates);
 			for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
 			{
 				for (const AdamPoint& point : adamPoints)
@@ -324,6 +330,65 @@ void DoTest2D()
 
 					PlotCircle(pixels, width, height, px, py, c_2DPointRadius, color2);
 				}
+				pointIndex++;
+			}
+		}
+	;
+
+	auto DrawAvgs = [&](std::vector<unsigned char>& pixels, int width, int height, int components, int paddingBeginX, int paddingWidth, int heightWithoutPadding)
+		{
+			// get the min and max value of both GD and adam points
+			float themin = FLT_MAX;
+			float themax = -FLT_MAX;
+			for (float f : allPointsAvgHeights)
+			{
+				themin = std::min(themin, f);
+				themax = std::max(themax, f);
+			}
+			for (float f : allAdamPointsAvgHeights)
+			{
+				themin = std::min(themin, f);
+				themax = std::max(themax, f);
+			}
+
+			// pad the min and the max to make the lines more readable
+			float minmaxdiff = themax - themin;
+			themax += minmaxdiff * 0.05f;
+			themin -= minmaxdiff * 0.05f;
+
+			// Draw lines in the padding for the normalized avg height of each point group
+			int pointIndex = 0;
+			for (float f : allPointsAvgHeights)
+			{
+				RGBu8 color = IndexToColor(pointIndex);
+				unsigned char color2[3] = { color.R, color.G, color.B };
+
+				int iy = heightWithoutPadding - int(float(heightWithoutPadding) * (f - themin) / (themax - themin));
+
+				unsigned char* pixel = &pixels[(iy * width + paddingBeginX) * 3];
+				for (int ix = 0; ix < paddingWidth; ++ix)
+				{
+					memcpy(pixel, color2, 3);
+					pixel += 3;
+				}
+
+				pointIndex++;
+			}
+
+			for (float f : allAdamPointsAvgHeights)
+			{
+				RGBu8 color = IndexToColor(pointIndex);
+				unsigned char color2[3] = { color.R, color.G, color.B };
+
+				int iy = heightWithoutPadding - int(float(heightWithoutPadding) * (f - themin) / (themax - themin));
+
+				unsigned char* pixel = &pixels[(iy * width + paddingBeginX) * 3];
+				for (int ix = 0; ix < paddingWidth; ++ix)
+				{
+					memcpy(pixel, color2, 3);
+					pixel += 3;
+				}
+
 				pointIndex++;
 			}
 		}
@@ -347,7 +412,8 @@ void DoTest2D()
 
 		for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
 		{
-			float avgHeight = 0.0f;
+			float& avgHeight = allPointsAvgHeights[learningRateIndex];
+			avgHeight = 0.0f;
 			std::vector<float2>& points = allPoints[learningRateIndex];
 			for (int pointIndex = 0; pointIndex < points.size(); ++pointIndex)
 			{
@@ -357,9 +423,12 @@ void DoTest2D()
 			fprintf(csvFile, ",\"%f\"", avgHeight);
 		}
 
-		for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
+		for (size_t alphaIndex = 0; alphaIndex < _countof(c_2DAdamAlphas); ++alphaIndex)
 		{
-			float avgHeight = 0.0f;
+			std::vector<AdamPoint>& adamPoints = allAdamPoints[alphaIndex];
+
+			float& avgHeight = allAdamPointsAvgHeights[alphaIndex];
+			avgHeight = 0.0f;
 			for (int pointIndex = 0; pointIndex < adamPoints.size(); ++pointIndex)
 			{
 				float2& p = adamPoints[pointIndex].m_point;
@@ -380,12 +449,13 @@ void DoTest2D()
 
 		// show where the points are
 		sprintf_s(fileName, "out/2D_%u_%i.png", seed, i);
-		DrawGaussians(gaussians, fileName, DrawPoints, DrawAdamPoints, i, c_2DNumSteps);
+		DrawGaussians(gaussians, fileName, DrawPoints, DrawAdamPoints, DrawAvgs, i, c_2DNumSteps);
 
 		// update the points
 		for (size_t learningRateIndex = 0; learningRateIndex < _countof(c_2DLearningRates); ++learningRateIndex)
 		{
-			float avgHeight = 0.0f;
+			float& avgHeight = allPointsAvgHeights[learningRateIndex];
+			avgHeight = 0.0f;
 
 			std::vector<float2>& points = allPoints[learningRateIndex];
 			for (int pointIndex = 0; pointIndex < points.size(); ++pointIndex)
@@ -405,9 +475,12 @@ void DoTest2D()
 		}
 
 		// update the adam points
-		for (std::vector<AdamPoint>& adamPoints : allAdamPoints)
+		for (size_t alphaIndex = 0; alphaIndex < _countof(c_2DAdamAlphas); ++alphaIndex)
 		{
-			float avgHeight = 0.0f;
+			std::vector<AdamPoint>& adamPoints = allAdamPoints[alphaIndex];
+
+			float& avgHeight = allAdamPointsAvgHeights[alphaIndex];
+			avgHeight = 0.0f;
 
 			for (int pointIndex = 0; pointIndex < adamPoints.size(); ++pointIndex)
 			{
@@ -438,7 +511,7 @@ void DoTest2D()
 
 	// show the final position
 	sprintf_s(fileName, "out/2D_%u_%i.png", seed, c_2DNumSteps);
-	DrawGaussians(gaussians, fileName, DrawPoints, DrawAdamPoints, c_2DNumSteps, c_2DNumSteps);
+	DrawGaussians(gaussians, fileName, DrawPoints, DrawAdamPoints, DrawAvgs, c_2DNumSteps, c_2DNumSteps);
 }
 
 int main(int argc, char** argv)
@@ -460,6 +533,7 @@ int main(int argc, char** argv)
 
 /*
 TODO:
+
 * verify that your adam values are coming up with the same values from the python example.
 
 * could show the average height of each point color in the gif images, like in the center margin.
