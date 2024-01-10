@@ -1,7 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS // for stb
 
 // Parameters
-#define DETERMINISTIC() false
+#define DETERMINISTIC() true
 #define DETERMINISTIC_SEED() 927170769
 
 static const int   c_2DNumSteps = 100;
@@ -536,8 +536,6 @@ TODO:
 
 * verify that your adam values are coming up with the same values from the python example.
 
-* could show the average height of each point color in the gif images, like in the center margin.
-
 ! apparently, adam learning rate is "whatever causes it not to explode at the start"
  * also, state of the art is to have alpha change on a schedule. odd. look at the slack link
  * the graphs seem to say otherwise though.
@@ -545,10 +543,6 @@ TODO:
 * clean up the adam code. less storage, cleaner to do values in bulk etc.
 
 * why are we adding gradient instead of subtracting it?
-
-* animated gif output? (stb, then make in gimp?)
- * could maybe make the GD and Adam images be side by side so the animated gif shows both in sync at the same time
- * yeah, write out the images side by side, instead of individually. can put a border between them or something though.
 
 Notes:
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
@@ -559,6 +553,7 @@ also: https://www.youtube.com/watch?v=JXQT_vxqwIs
  * talks about hyper parameters and how you need to tune alpha.
 
 Blog:
+! in 927170769, GD, green shows convergence that is too slow. red shows steps too large to converge. blue does a lot better.
 * show a couple random runs of 2d.
 * show 1d and 2d both? or maybe just 2d
 * show that you are using fewer colors to show the topo map?
