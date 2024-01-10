@@ -100,7 +100,7 @@ float F(const std::vector<Gauss2D>& gaussians, const float2& x)
 {
 	float ret = 0.0f;
 	for (const Gauss2D& gaussian : gaussians)
-		ret += gaussian.amplitude * Gaussian(gaussian.center - x, gaussian.sigma);
+		ret += gaussian.amplitude * Gaussian(x - gaussian.center, gaussian.sigma);
 	return ret;
 }
 
@@ -109,8 +109,8 @@ float2 FGradient(const std::vector<Gauss2D>& gaussians, const float2& x)
 	float2 ret = float2{ 0.0f, 0.0f };
 	for (const Gauss2D& gaussian : gaussians)
 	{
-		ret[0] += gaussian.amplitude * GaussianDerivative(gaussian.center[0] - x[0], gaussian.sigma[0]) * Gaussian(gaussian.center[1] - x[1], gaussian.sigma[1]);
-		ret[1] += gaussian.amplitude * GaussianDerivative(gaussian.center[1] - x[1], gaussian.sigma[1]) * Gaussian(gaussian.center[0] - x[0], gaussian.sigma[0]);
+		ret[0] += gaussian.amplitude * GaussianDerivative(x[0] - gaussian.center[0], gaussian.sigma[0]) * Gaussian(x[1] - gaussian.center[1], gaussian.sigma[1]);
+		ret[1] += gaussian.amplitude * GaussianDerivative(x[1] - gaussian.center[1], gaussian.sigma[1]) * Gaussian(x[0] - gaussian.center[0], gaussian.sigma[0]);
 	}
 	return ret;
 }
@@ -463,7 +463,7 @@ void DoTest2D()
 				float2& p = points[pointIndex];
 
 				float2 grad = FGradient(gaussians, p);
-				p = p + grad * c_2DLearningRates[learningRateIndex];
+				p = p - grad * c_2DLearningRates[learningRateIndex];
 
 				p[0] = Clamp(p[0], 0.0f, 1.0f);
 				p[1] = Clamp(p[1], 0.0f, 1.0f);
@@ -492,7 +492,7 @@ void DoTest2D()
 				adjustedGrad[0] = point.m_adamX.GetTranslation(grad[0]);
 				adjustedGrad[1] = point.m_adamY.GetTranslation(grad[1]);
 
-				point.m_point = point.m_point + adjustedGrad;
+				point.m_point = point.m_point - adjustedGrad;
 				point.m_point[0] = Clamp(point.m_point[0], 0.0f, 1.0f);
 				point.m_point[1] = Clamp(point.m_point[1], 0.0f, 1.0f);
 
@@ -541,8 +541,6 @@ TODO:
  * the graphs seem to say otherwise though.
 
 * clean up the adam code. less storage, cleaner to do values in bulk etc.
-
-* why are we adding gradient instead of subtracting it?
 
 Notes:
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
