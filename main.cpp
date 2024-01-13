@@ -15,6 +15,7 @@ static const int   c_2DNumAdamPoints = 20;
 static const int   c_2DNumGaussians = 25;
 static const float c_2DSigmaMin = 0.05f;
 static const float c_2DSigmaMax = 0.2f;
+static const int   c_2DNumGaussiansSampled = 25;
 
 static const int   c_2DImageSize = 256;
 static const int   c_2DImagePaddingH = 16;
@@ -43,40 +44,27 @@ struct Gauss2D
 // Note: alpha needs to be tuned, but beta1, beta2, epsilon as usually fine as is
 struct Adam
 {
-	Adam(float alpha = 0.01f, float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 1e-8f)
-		: m_m(0.0f)
-		, m_v(0.0f)
-		, m_alpha(alpha)
-		, m_beta1(beta1)
-		, m_beta2(beta2)
-		, m_epsilon(epsilon)
-		, m_beta1Decayed(beta1)
-		, m_beta2Decayed(beta2)
-	{
-	}
-
 	float m_m = 0.0f;
 	float m_v = 0.0f;
-	float m_alpha = 0.0f;
-	float m_beta1 = 0.0f;
-	float m_beta2 = 0.0f;
-	float m_epsilon = 0.0f;
-
 	float m_beta1Decayed = 0.0f;
 	float m_beta2Decayed = 0.0f;
 
-	float GetTranslation(float derivative)
+	float GetTranslation(float derivative, float alpha)
 	{
-		m_m = m_beta1 * m_m + (1.0f - m_beta1) * derivative;
-		m_v = m_beta2 * m_v + (1.0f - m_beta2) * derivative * derivative;
+		static const float c_beta1 = 0.9f;
+		static const float c_beta2 = 0.999f;
+		static const float c_epsilon = 1e-8f;
+
+		m_m = c_beta1 * m_m + (1.0f - c_beta1) * derivative;
+		m_v = c_beta2 * m_v + (1.0f - c_beta2) * derivative * derivative;
 
 		float mhat = m_m / (1.0f - m_beta1Decayed);
 		float vhat = m_v / (1.0f - m_beta2Decayed);
 
-		m_beta1Decayed *= m_beta1;
-		m_beta2Decayed *= m_beta2;
+		m_beta1Decayed *= c_beta1;
+		m_beta2Decayed *= c_beta2;
 
-		return m_alpha * mhat / (std::sqrt(vhat) + m_epsilon);
+		return alpha * mhat / (std::sqrt(vhat) + c_epsilon);
 	}
 };
 
@@ -104,11 +92,18 @@ float F(const std::vector<Gauss2D>& gaussians, const float2& x)
 	return ret;
 }
 
-float2 FGradient(const std::vector<Gauss2D>& gaussians, const float2& x)
+float2 FStochasticGradient(const std::vector<Gauss2D>& gaussians, const float2& x, std::mt19937& rng)
 {
+	std::vector<int> gaussiansShuffled(gaussians.size());
+	for (int i = 0; i < (int)gaussiansShuffled.size(); ++i)
+		gaussiansShuffled[i] = i;
+	std::shuffle(gaussiansShuffled.begin(), gaussiansShuffled.end(), rng);
+	gaussiansShuffled.resize(c_2DNumGaussiansSampled);
+
 	float2 ret = float2{ 0.0f, 0.0f };
-	for (const Gauss2D& gaussian : gaussians)
+	for (int i : gaussiansShuffled)
 	{
+		const Gauss2D& gaussian = gaussians[gaussiansShuffled[i]];
 		ret[0] += gaussian.amplitude * GaussianDerivative(x[0] - gaussian.center[0], gaussian.sigma[0]) * Gaussian(x[1] - gaussian.center[1], gaussian.sigma[1]);
 		ret[1] += gaussian.amplitude * GaussianDerivative(x[1] - gaussian.center[1], gaussian.sigma[1]) * Gaussian(x[0] - gaussian.center[0], gaussian.sigma[0]);
 	}
@@ -258,13 +253,11 @@ void DoTest2D()
 		gaussian.sigma = float2{ distSigma(rng), distSigma(rng) };
 	}
 
-	// add another gaussian that is a bowl, to keep the points in
+	// force the first gaussian to be a bowl to hold the points in better
 	{
-		Gauss2D bowl;
-		bowl.center = float2{ 0.5f, 0.5f };
-		bowl.sigma = float2{ 0.5f, 0.5f };
-		bowl.amplitude = -1.0f * std::sqrt(float(c_2DNumGaussians));
-		gaussians.push_back(bowl);
+		gaussians[0].center = float2{0.5f, 0.5f};
+		gaussians[0].sigma = float2{ 0.5f, 0.5f };
+		gaussians[0].amplitude = -1.0f * std::sqrt(float(c_2DNumGaussians));
 	}
 
 	// Randomly init starting points
@@ -282,15 +275,10 @@ void DoTest2D()
 	for (size_t alphaIndex = 0; alphaIndex < _countof(c_2DAdamAlphas); ++alphaIndex)
 	{
 		std::vector<AdamPoint>& adamPoints = allAdamPoints[alphaIndex];
-		float alpha = c_2DAdamAlphas[alphaIndex];
 
 		adamPoints.resize(c_2DNumAdamPoints);
 		for (AdamPoint& p : adamPoints)
-		{
 			p.m_point = float2{ distPos(rng), distPos(rng) };
-			p.m_adamX.m_alpha = alpha;
-			p.m_adamY.m_alpha = alpha;
-		}
 	}
 
 	auto DrawPoints = [&](std::vector<unsigned char>& pixels, int width, int height, int components)
@@ -462,7 +450,7 @@ void DoTest2D()
 			{
 				float2& p = points[pointIndex];
 
-				float2 grad = FGradient(gaussians, p);
+				float2 grad = FStochasticGradient(gaussians, p, rng);
 				p = p - grad * c_2DLearningRates[learningRateIndex];
 
 				p[0] = Clamp(p[0], 0.0f, 1.0f);
@@ -477,6 +465,8 @@ void DoTest2D()
 		// update the adam points
 		for (size_t alphaIndex = 0; alphaIndex < _countof(c_2DAdamAlphas); ++alphaIndex)
 		{
+			float alpha = c_2DAdamAlphas[alphaIndex];
+
 			std::vector<AdamPoint>& adamPoints = allAdamPoints[alphaIndex];
 
 			float& avgHeight = allAdamPointsAvgHeights[alphaIndex];
@@ -486,11 +476,11 @@ void DoTest2D()
 			{
 				AdamPoint& point = adamPoints[pointIndex];
 
-				float2 grad = FGradient(gaussians, point.m_point);
+				float2 grad = FStochasticGradient(gaussians, point.m_point, rng);
 
 				float2 adjustedGrad;
-				adjustedGrad[0] = point.m_adamX.GetTranslation(grad[0]);
-				adjustedGrad[1] = point.m_adamY.GetTranslation(grad[1]);
+				adjustedGrad[0] = point.m_adamX.GetTranslation(grad[0], alpha);
+				adjustedGrad[1] = point.m_adamY.GetTranslation(grad[1], alpha);
 
 				point.m_point = point.m_point - adjustedGrad;
 				point.m_point[0] = Clamp(point.m_point[0], 0.0f, 1.0f);
@@ -534,13 +524,7 @@ int main(int argc, char** argv)
 /*
 TODO:
 
-* verify that your adam values are coming up with the same values from the python example.
 
-! apparently, adam learning rate is "whatever causes it not to explode at the start"
- * also, state of the art is to have alpha change on a schedule. odd. look at the slack link
- * the graphs seem to say otherwise though.
-
-* clean up the adam code. less storage, cleaner to do values in bulk etc.
 
 Notes:
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
@@ -551,6 +535,9 @@ also: https://www.youtube.com/watch?v=JXQT_vxqwIs
  * talks about hyper parameters and how you need to tune alpha.
 
 Blog:
+* look at only using some of the gaussians for gradient calculation. doesn't really change much? hrm.. maybe it helps in higher dimensions. will have to look at that more.
+ * ema makes adam have some memory.
+* maybe too many minima with these random 2d gaussians?
 ! in 927170769, GD, green shows convergence that is too slow. red shows steps too large to converge. blue does a lot better.
 * show a couple random runs of 2d.
 * show 1d and 2d both? or maybe just 2d
@@ -561,5 +548,15 @@ Blog:
 * compare alpha values in adam.
 * momentum is kind of a "local search" to see if anything nearby leads lower.
 * notes about finding good values for adam: https://electronic-arts.slack.com/archives/C02CCLV8BL7/p1704740526201589
+ * and https://electronic-arts.slack.com/archives/C02CCLV8BL7/p1704909991160639
+ * and https://electronic-arts.slack.com/archives/D032EGXM1NC/p1705046208393919
+ * and lots of things in email
+ * and this https://qr.ae/pKmZTp
+* an overview of gradient descent algorithms (2016) https://www.ruder.io/optimizing-gradient-descent/
+* gradient descent (and beyond), includes newton's method https://www.cs.cornell.edu/courses/cs4780/2018fa/lectures/lecturenote07.html
+* 2nd order root finding methods might also work better here.
 
+! apparently, adam learning rate is "whatever causes it not to explode at the start"
+ * also, state of the art is to have alpha change on a schedule. odd. look at the slack link
+ * the graphs seem to say otherwise though.
 */
