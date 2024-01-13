@@ -46,8 +46,8 @@ struct Adam
 {
 	float m_m = 0.0f;
 	float m_v = 0.0f;
-	float m_beta1Decayed = 0.0f;
-	float m_beta2Decayed = 0.0f;
+	float m_beta1Decayed = 1.0f;
+	float m_beta2Decayed = 1.0f;
 
 	float GetTranslation(float derivative, float alpha)
 	{
@@ -58,11 +58,11 @@ struct Adam
 		m_m = c_beta1 * m_m + (1.0f - c_beta1) * derivative;
 		m_v = c_beta2 * m_v + (1.0f - c_beta2) * derivative * derivative;
 
-		float mhat = m_m / (1.0f - m_beta1Decayed);
-		float vhat = m_v / (1.0f - m_beta2Decayed);
-
 		m_beta1Decayed *= c_beta1;
 		m_beta2Decayed *= c_beta2;
+
+		float mhat = m_m / (1.0f - m_beta1Decayed);
+		float vhat = m_v / (1.0f - m_beta2Decayed);
 
 		return alpha * mhat / (std::sqrt(vhat) + c_epsilon);
 	}
