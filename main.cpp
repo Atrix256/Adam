@@ -51,19 +51,22 @@ struct Adam
 
 	float GetTranslation(float derivative, float alpha)
 	{
+		// Adam parameters
 		static const float c_beta1 = 0.9f;
 		static const float c_beta2 = 0.999f;
 		static const float c_epsilon = 1e-8f;
 
+		// exponential moving average of first and second moment
 		m_m = c_beta1 * m_m + (1.0f - c_beta1) * derivative;
 		m_v = c_beta2 * m_v + (1.0f - c_beta2) * derivative * derivative;
 
+		// bias correction
 		m_beta1Decayed *= c_beta1;
 		m_beta2Decayed *= c_beta2;
-
 		float mhat = m_m / (1.0f - m_beta1Decayed);
 		float vhat = m_v / (1.0f - m_beta2Decayed);
 
+		// Adam adjusted derivative
 		return alpha * mhat / (std::sqrt(vhat) + c_epsilon);
 	}
 };
