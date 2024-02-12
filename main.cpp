@@ -501,7 +501,7 @@ void DoTest2D()
 
 		fprintf(csvFile, "\n");
 	}
-	printf("\r%i/%i\n", c_2DNumSteps, c_2DNumSteps);
+	printf("\rStep: %i/%i\n", c_2DNumSteps, c_2DNumSteps);
 
 	// close the CSV
 	fclose(csvFile);
