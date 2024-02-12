@@ -1,7 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS // for stb
 
 // Parameters
-#define DETERMINISTIC() true
+#define DETERMINISTIC() false
 #define DETERMINISTIC_SEED() 927170769
 
 static const int   c_2DNumSteps = 100;
