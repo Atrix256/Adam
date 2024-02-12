@@ -48,7 +48,9 @@ struct Adam
 	float m = 0.0f;
 	float v = 0.0f;
 
-	// Internal state calculated for convinience
+	// Internal state calculated for convenience
+	// If you have a bunch of derivatives, you would probably want to store / calculate these once
+	// for the entire gradient, instead of each derivative like this is doing.
 	float beta1Decayed = 1.0f;
 	float beta2Decayed = 1.0f;
 
