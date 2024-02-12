@@ -44,12 +44,15 @@ struct Gauss2D
 // Note: alpha needs to be tuned, but beta1, beta2, epsilon as usually fine as is
 struct Adam
 {
-	float m_m = 0.0f;
-	float m_v = 0.0f;
-	float m_beta1Decayed = 1.0f;
-	float m_beta2Decayed = 1.0f;
+	// Internal state
+	float m = 0.0f;
+	float v = 0.0f;
 
-	float GetTranslation(float derivative, float alpha)
+	// Internal state calculated for convinience
+	float beta1Decayed = 1.0f;
+	float beta2Decayed = 1.0f;
+
+	float GetAdjustedDerivative(float derivative, float alpha)
 	{
 		// Adam parameters
 		static const float c_beta1 = 0.9f;
@@ -57,14 +60,14 @@ struct Adam
 		static const float c_epsilon = 1e-8f;
 
 		// exponential moving average of first and second moment
-		m_m = c_beta1 * m_m + (1.0f - c_beta1) * derivative;
-		m_v = c_beta2 * m_v + (1.0f - c_beta2) * derivative * derivative;
+		m = c_beta1 * m + (1.0f - c_beta1) * derivative;
+		v = c_beta2 * v + (1.0f - c_beta2) * derivative * derivative;
 
 		// bias correction
-		m_beta1Decayed *= c_beta1;
-		m_beta2Decayed *= c_beta2;
-		float mhat = m_m / (1.0f - m_beta1Decayed);
-		float vhat = m_v / (1.0f - m_beta2Decayed);
+		beta1Decayed *= c_beta1;
+		beta2Decayed *= c_beta2;
+		float mhat = m / (1.0f - beta1Decayed);
+		float vhat = v / (1.0f - beta2Decayed);
 
 		// Adam adjusted derivative
 		return alpha * mhat / (std::sqrt(vhat) + c_epsilon);
@@ -430,11 +433,10 @@ void DoTest2D()
 		fprintf(csvFile, "\n");
 	}
 
-
 	// Iterate
 	for (int i = 0; i < c_2DNumSteps; ++i)
 	{
-		printf("\r%i/%i", i, c_2DNumSteps);
+		printf("\rStep: %i/%i", i, c_2DNumSteps);
 
 		fprintf(csvFile, "\"%i\"", i + 1);
 
@@ -482,8 +484,8 @@ void DoTest2D()
 				float2 grad = FStochasticGradient(gaussians, point.m_point, rng);
 
 				float2 adjustedGrad;
-				adjustedGrad[0] = point.m_adamX.GetTranslation(grad[0], alpha);
-				adjustedGrad[1] = point.m_adamY.GetTranslation(grad[1], alpha);
+				adjustedGrad[0] = point.m_adamX.GetAdjustedDerivative(grad[0], alpha);
+				adjustedGrad[1] = point.m_adamY.GetAdjustedDerivative(grad[1], alpha);
 
 				point.m_point = point.m_point - adjustedGrad;
 				point.m_point[0] = Clamp(point.m_point[0], 0.0f, 1.0f);
@@ -523,43 +525,3 @@ int main(int argc, char** argv)
 	
 	return 0;
 }
-
-/*
-TODO:
-
-
-
-Notes:
-https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
-https://machinelearningmastery.com/adam-optimization-from-scratch/
-https://www.kdnuggets.com/2022/12/tuning-adam-optimizer-parameters-pytorch.html
-
-also: https://www.youtube.com/watch?v=JXQT_vxqwIs
- * talks about hyper parameters and how you need to tune alpha.
-
-Blog:
-* look at only using some of the gaussians for gradient calculation. doesn't really change much? hrm.. maybe it helps in higher dimensions. will have to look at that more.
- * ema makes adam have some memory.
-* maybe too many minima with these random 2d gaussians?
-! in 927170769, GD, green shows convergence that is too slow. red shows steps too large to converge. blue does a lot better.
-* show a couple random runs of 2d.
-* show 1d and 2d both? or maybe just 2d
-* show that you are using fewer colors to show the topo map?
-* could show a bunch of regular gradient descent points first, and show how faster learning rate ones don't settle down. before showing adam.
-* say and show that formula for m and v is equivelent to lerping
-* compare learning rates in gradient descenet.
-* compare alpha values in adam.
-* momentum is kind of a "local search" to see if anything nearby leads lower.
-* notes about finding good values for adam: https://electronic-arts.slack.com/archives/C02CCLV8BL7/p1704740526201589
- * and https://electronic-arts.slack.com/archives/C02CCLV8BL7/p1704909991160639
- * and https://electronic-arts.slack.com/archives/D032EGXM1NC/p1705046208393919
- * and lots of things in email
- * and this https://qr.ae/pKmZTp
-* an overview of gradient descent algorithms (2016) https://www.ruder.io/optimizing-gradient-descent/
-* gradient descent (and beyond), includes newton's method https://www.cs.cornell.edu/courses/cs4780/2018fa/lectures/lecturenote07.html
-* 2nd order root finding methods might also work better here.
-
-! apparently, adam learning rate is "whatever causes it not to explode at the start"
- * also, state of the art is to have alpha change on a schedule. odd. look at the slack link
- * the graphs seem to say otherwise though.
-*/
